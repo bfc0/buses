@@ -1,9 +1,30 @@
 import trio
 import json
+import itertools
+import typing as t
 from trio_websocket import serve_websocket, ConnectionClosed
 
+buses = {}
 
-async def echo_server(request):
+
+async def serve_browser(request):
+    ws = await request.accept()
+
+    while True:
+        try:
+            message = {
+                "msgType": "Buses",
+                "buses": [
+                    msg for _, msg in buses.items()
+                ], }
+            # print(message)
+            await ws.send_message(json.dumps(message, ensure_ascii=False))
+            await trio.sleep(1)
+        except ConnectionClosed:
+            break
+
+
+async def get_buses(request):
     ws = await request.accept()
     msg = {
         "msgType": "Buses",
@@ -12,17 +33,26 @@ async def echo_server(request):
             {"busId": "a134aa", "lat": 55.7494, "lng": 37.621, "route": "670к"},
         ],
     }
+
     while True:
         try:
             message = await ws.get_message()
-            await ws.send_message(json.dumps(msg))
-            await trio.sleep(1)
+            payload = json.loads(message)
+            bus_id = payload["busId"]
+            buses[bus_id] = payload
+
         except ConnectionClosed:
             break
 
 
 async def main():
-    await serve_websocket(echo_server, "127.0.0.1", 8000, ssl_context=None)
+    async with trio.open_nursery() as nursery:
+        nursery.start_soon(serve_websocket, serve_browser,
+                           "127.0.0.1", 8000, None)
+
+        nursery.start_soon(serve_websocket, get_buses,
+                           "127.0.0.1", 8080, None)
 
 
-trio.run(main)
+if __name__ == "__main__":
+    trio.run(main)
