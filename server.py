@@ -1,8 +1,23 @@
+import logging
+import anyio
 import trio
 import json
-import itertools
 import typing as t
+import pydantic as p
 from trio_websocket import serve_websocket, ConnectionClosed
+
+
+class Bus(p.BaseModel):
+    busId: str
+    lat: float = p.Field(ge=55.0, le=57.0)
+    lng: float = p.Field(ge=36.0, le=39.0)
+    route: str
+
+
+class OutgoingMessage(p.BaseModel):
+    msgType: str
+    buses: list[Bus]
+
 
 buses = {}
 
@@ -12,16 +27,14 @@ async def serve_browser(request):
 
     while True:
         try:
-            message = {
-                "msgType": "Buses",
-                "buses": [
-                    msg for _, msg in buses.items()
-                ], }
-            # print(message)
-            await ws.send_message(json.dumps(message, ensure_ascii=False))
+            message = OutgoingMessage(msgType="Buses", buses=buses.values())
+            await ws.send_message(message.model_dump_json())
             await trio.sleep(1)
         except ConnectionClosed:
             break
+        except Exception as e:
+            logging.error(e)
+            anyio.sleep(1)
 
 
 async def get_buses(request):
@@ -36,13 +49,17 @@ async def get_buses(request):
 
     while True:
         try:
-            message = await ws.get_message()
-            payload = json.loads(message)
-            bus_id = payload["busId"]
-            buses[bus_id] = payload
+            raw_message = await ws.get_message()
+            bus = Bus.model_validate_json(raw_message)
+            buses[bus.busId] = bus
 
         except ConnectionClosed:
             break
+        except p.ValidationError as e:
+            logging.error(f"message validation  failed: {
+                          e.errors()} message: {raw_message}")
+
+            continue
 
 
 async def main():
