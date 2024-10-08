@@ -1,4 +1,3 @@
-import copy
 import os
 import itertools
 import json
@@ -11,6 +10,7 @@ import random
 import functools
 import asyncclick as click
 from trio_websocket import open_websocket_url
+from decorators import reconnect
 
 T = t.TypeVar("T")
 
@@ -51,20 +51,6 @@ def create_runner(
     bus_id = f"bus-{route['name']}-{offset}"
     coordinates = coordinates[offset:] + coordinates[:offset]
     return functools.partial(run_bus, channel, bus_id, route["name"], coordinates)
-
-
-def reconnect(async_function: t.Callable[..., t.Awaitable[T]]) -> t.Callable[..., t.Awaitable[T]]:
-    @functools.wraps(async_function)
-    async def wrapper(*args, **kwargs):
-        while True:
-            try:
-                await async_function(*args, **kwargs)
-            except Exception as e:
-                logging.error(e)
-                logging.error(traceback.format_exc())
-                await anyio.sleep(1)
-
-    return wrapper
 
 
 @reconnect

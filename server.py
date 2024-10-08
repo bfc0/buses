@@ -1,10 +1,13 @@
+from __future__ import annotations
 import logging
 import anyio
 import trio
-import json
 import typing as t
 import pydantic as p
-from trio_websocket import serve_websocket, ConnectionClosed
+from trio_websocket import serve_websocket, WebSocketRequest
+from decorators import forever
+
+T = t.TypeVar("T")
 
 
 class Bus(p.BaseModel):
@@ -13,53 +16,73 @@ class Bus(p.BaseModel):
     lng: float = p.Field(ge=36.0, le=39.0)
     route: str
 
+    def is_inside(self, window: Window | None) -> bool:
+        return window.contains(self) if window else False
+
 
 class OutgoingMessage(p.BaseModel):
-    msgType: str
+    msgType: str = "Buses"
     buses: list[Bus]
+
+
+class Window(p.BaseModel):
+    south_lat: float = p.Field(ge=50.0, le=60.0)
+    north_lat: float = p.Field(ge=50.0, le=60.0)
+    west_lng: float = p.Field(ge=30.0, le=40.0)
+    east_lng: float = p.Field(ge=30.0, le=40.0)
+
+    def contains(self, bus: Bus) -> bool:
+        return (
+            self.south_lat <= bus.lat <= self.north_lat
+            and self.west_lng <= bus.lng <= self.east_lng
+        )
+
+
+class IncomingMessage(p.BaseModel):
+    msgType: t.Literal["newBounds"]
+    window: Window = p.Field(alias="data")
 
 
 buses = {}
 
 
-async def serve_browser(request):
+async def serve_browser(request: WebSocketRequest):
+    ws = await request.accept()
+    window = None
+
+    @forever
+    async def send():
+        message = OutgoingMessage(
+            buses=[bus for bus in buses.values() if bus.is_inside(window)])
+        await ws.send_message(message.model_dump_json())
+        await anyio.sleep(1)
+
+    @forever
+    async def receive():
+        nonlocal window
+        message = await ws.get_message()
+        window = IncomingMessage.model_validate_json(message).window
+        logging.info(f"window: {window}")
+
+    async with trio.open_nursery() as nursery:
+        nursery.start_soon(send)
+        nursery.start_soon(receive)
+
+
+async def get_buses(request: WebSocketRequest) -> None:
     ws = await request.accept()
 
-    while True:
-        try:
-            message = OutgoingMessage(msgType="Buses", buses=buses.values())
-            await ws.send_message(message.model_dump_json())
-            await trio.sleep(1)
-        except ConnectionClosed:
-            break
-        except Exception as e:
-            logging.error(e)
-            anyio.sleep(1)
-
-
-async def get_buses(request):
-    ws = await request.accept()
-    msg = {
-        "msgType": "Buses",
-        "buses": [
-            {"busId": "c790сс", "lat": 55.7500, "lng": 37.600, "route": "120"},
-            {"busId": "a134aa", "lat": 55.7494, "lng": 37.621, "route": "670к"},
-        ],
-    }
-
-    while True:
+    @forever
+    async def _get_buses():
         try:
             raw_message = await ws.get_message()
             bus = Bus.model_validate_json(raw_message)
             buses[bus.busId] = bus
-
-        except ConnectionClosed:
-            break
         except p.ValidationError as e:
             logging.error(f"message validation  failed: {
-                          e.errors()} message: {raw_message}")
+                e.errors()} message: {raw_message}")
 
-            continue
+    await _get_buses()
 
 
 async def main():
