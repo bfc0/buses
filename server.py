@@ -95,4 +95,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    trio.run(main)
+    main(_anyio_backend="trio")
