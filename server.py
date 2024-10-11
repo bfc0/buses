@@ -67,7 +67,7 @@ async def serve_browser(request: WebSocketRequest):
         except p.ValidationError as e:
             logging.error(f"message validation  failed: {
                 e.errors()} message: {message}")
-            await ws.send_message(json.dumps({"msgType": "error", "errors": e.json()}))
+            await ws.send_message(json.dumps({"msgType": "error", "errors": e.errors()}))
 
     async with trio.open_nursery() as nursery:
         nursery.start_soon(send)
@@ -87,7 +87,7 @@ async def get_buses(request: WebSocketRequest) -> None:
         except p.ValidationError as e:
             logging.error(f"message validation  failed: {
                 e.errors()} message: {raw_message}")
-            await ws.send_message(json.dumps({"msgType": "error", "errors": e.json()}))
+            await ws.send_message(json.dumps({"msgType": "error", "errors": e.errors()}))
 
     await _get_buses()
 

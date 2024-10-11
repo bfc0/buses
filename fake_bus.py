@@ -62,7 +62,7 @@ async def retranslate_to_server(recv_chan: trio.MemoryReceiveChannel, url: str):
 @click.option("--url", default="ws://localhost:8080", help="Server URL")
 @click.option("--sockets", default=5, help="Number of sockets")
 @click.option("--buses_per_route", default=10, help="Number of buses per route")
-async def main(url, sockets, buses_per_route):
+async def main(url: str, sockets: int, buses_per_route: int):
     try:
         routes = load_routes()
         channels = [trio.open_memory_channel(0) for _ in range(sockets)]
@@ -83,5 +83,4 @@ async def main(url, sockets, buses_per_route):
 
 
 if __name__ == "__main__":
-    # trio.run(main)
     main(_anyio_backend="trio")
