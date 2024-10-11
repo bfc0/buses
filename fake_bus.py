@@ -12,8 +12,6 @@ import asyncclick as click
 from trio_websocket import open_websocket_url
 from decorators import reconnect
 
-T = t.TypeVar("T")
-
 
 def load_routes(directory_path="routes") -> t.Generator[dict, None, None]:
     for filename in os.listdir(directory_path):

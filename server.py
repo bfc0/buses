@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import logging
 import anyio
 import trio
@@ -6,8 +7,6 @@ import typing as t
 import pydantic as p
 from trio_websocket import serve_websocket, WebSocketRequest
 from decorators import forever
-
-T = t.TypeVar("T")
 
 
 class Bus(p.BaseModel):
@@ -59,10 +58,16 @@ async def serve_browser(request: WebSocketRequest):
 
     @forever
     async def receive():
-        nonlocal window
-        message = await ws.get_message()
-        window = IncomingMessage.model_validate_json(message).window
-        logging.info(f"window: {window}")
+        try:
+            nonlocal window
+            message = await ws.get_message()
+            window = IncomingMessage.model_validate_json(message).window
+            logging.info(f"window: {window}")
+            await ws.send_message(json.dumps({"msgType": "ok"}))
+        except p.ValidationError as e:
+            logging.error(f"message validation  failed: {
+                e.errors()} message: {message}")
+            await ws.send_message(json.dumps({"msgType": "error", "errors": e.json()}))
 
     async with trio.open_nursery() as nursery:
         nursery.start_soon(send)
@@ -78,9 +83,11 @@ async def get_buses(request: WebSocketRequest) -> None:
             raw_message = await ws.get_message()
             bus = Bus.model_validate_json(raw_message)
             buses[bus.busId] = bus
+            await ws.send_message(json.dumps({"msgType": "ok"}))
         except p.ValidationError as e:
             logging.error(f"message validation  failed: {
                 e.errors()} message: {raw_message}")
+            await ws.send_message(json.dumps({"msgType": "error", "errors": e.json()}))
 
     await _get_buses()
 
