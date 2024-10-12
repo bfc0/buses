@@ -10,10 +10,10 @@ T = t.TypeVar("T")
 
 def forever(func: t.Callable[..., t.Awaitable[T]]) -> t.Callable[..., t.Awaitable[T]]:
     @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args, **kwargs) -> t.Awaitable[T]:
         while True:
             try:
-                await func(*args, **kwargs)
+                return await func(*args, **kwargs)
             except ConnectionClosed:
                 logging.info("connection closed")
                 break
@@ -22,10 +22,10 @@ def forever(func: t.Callable[..., t.Awaitable[T]]) -> t.Callable[..., t.Awaitabl
 
 def reconnect(async_function: t.Callable[..., t.Awaitable[T]]) -> t.Callable[..., t.Awaitable[T]]:
     @functools.wraps(async_function)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args, **kwargs) -> t.Awaitable[T]:
         while True:
             try:
-                await async_function(*args, **kwargs)
+                return await async_function(*args, **kwargs)
             except Exception as e:
                 logging.error(e)
                 logging.error(traceback.format_exc())
