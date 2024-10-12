@@ -9,6 +9,7 @@ import typing as t
 import random
 import functools
 import asyncclick as click
+from contextlib import suppress
 from trio_websocket import open_websocket_url
 from decorators import reconnect
 
@@ -83,4 +84,5 @@ async def main(url: str, sockets: int, buses_per_route: int):
 
 
 if __name__ == "__main__":
-    main(_anyio_backend="trio")
+    with suppress(KeyboardInterrupt):
+        main(_anyio_backend="trio")

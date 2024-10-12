@@ -5,7 +5,9 @@ import anyio
 import trio
 import typing as t
 import pydantic as p
-from trio_websocket import serve_websocket, WebSocketRequest
+import asyncclick as click
+from contextlib import suppress
+from trio_websocket import ConnectionClosed, serve_websocket, WebSocketRequest
 from decorators import forever
 
 
@@ -52,22 +54,26 @@ async def serve_browser(request: WebSocketRequest):
     @forever
     async def send():
         message = OutgoingMessage(
-            buses=[bus for bus in buses.values() if bus.is_inside(window)])
+            buses=[bus for bus in buses.values() if bus.is_inside(window)]
+        )
         await ws.send_message(message.model_dump_json())
         await anyio.sleep(1)
 
     @forever
     async def receive():
+        nonlocal window
+        message = await ws.get_message()
         try:
-            nonlocal window
-            message = await ws.get_message()
             window = IncomingMessage.model_validate_json(message).window
             logging.info(f"window: {window}")
-            await ws.send_message(json.dumps({"msgType": "ok"}))
         except p.ValidationError as e:
-            logging.error(f"message validation  failed: {
-                e.errors()} message: {message}")
-            await ws.send_message(json.dumps({"msgType": "error", "errors": e.errors()}))
+            logging.error(
+                f"message validation  failed: {
+                    e.errors()} message: {message}"
+            )
+            await ws.send_message(
+                json.dumps({"msgType": "error", "errors": e.errors()})
+            )
 
     async with trio.open_nursery() as nursery:
         nursery.start_soon(send)
@@ -79,27 +85,47 @@ async def get_buses(request: WebSocketRequest) -> None:
 
     @forever
     async def _get_buses():
+        global buses
         try:
             raw_message = await ws.get_message()
             bus = Bus.model_validate_json(raw_message)
             buses[bus.busId] = bus
             await ws.send_message(json.dumps({"msgType": "ok"}))
         except p.ValidationError as e:
-            logging.error(f"message validation  failed: {
-                e.errors()} message: {raw_message}")
-            await ws.send_message(json.dumps({"msgType": "error", "errors": e.errors()}))
+            logging.error(
+                f"message validation  failed: {
+                    e.errors()} message: {raw_message}"  # type:ignore
+            )
+            await ws.send_message(
+                json.dumps({"msgType": "error", "errors": e.errors()})
+            )
+        except ConnectionClosed:
+            buses = {}
+            raise
 
     await _get_buses()
 
 
-async def main():
+@click.command()
+@click.option("--host", default="127.0.0.1", help="Server Host")
+@click.option("--buses_port", default=8080, help="Buses Port")
+@click.option("--browser_port", default=8000, help="Browser Port")
+@click.option(
+    "--log_level",
+    "-l",
+    type=click.Choice(["debug", "info", "warning", "error", "critical"]),
+    default="info",
+    show_default=True,
+    help="Set logging level",
+)
+async def main(host, buses_port, browser_port, log_level):
+    logging.basicConfig(level=log_level.upper())
+    logging.debug("starting server")
     async with trio.open_nursery() as nursery:
-        nursery.start_soon(serve_websocket, serve_browser,
-                           "127.0.0.1", 8000, None)
-
-        nursery.start_soon(serve_websocket, get_buses,
-                           "127.0.0.1", 8080, None)
+        nursery.start_soon(serve_websocket, serve_browser, host, browser_port, None)
+        nursery.start_soon(serve_websocket, get_buses, host, buses_port, None)
 
 
 if __name__ == "__main__":
-    main(_anyio_backend="trio")
+    with suppress(KeyboardInterrupt):
+        main(_anyio_backend="trio")

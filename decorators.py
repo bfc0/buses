@@ -5,27 +5,33 @@ import typing as t
 import anyio
 from trio_websocket import ConnectionClosed
 
-T = t.TypeVar("T")
+
+P = t.ParamSpec("P")
 
 
-def forever(func: t.Callable[..., t.Awaitable[T]]) -> t.Callable[..., t.Awaitable[T]]:
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs) -> t.Awaitable[T]:
+def forever(
+    async_function: t.Callable[P, t.Awaitable[t.Any]]
+) -> t.Callable[P, t.Awaitable[None]]:
+    @functools.wraps(async_function)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> None:
         while True:
             try:
-                return await func(*args, **kwargs)
+                await async_function(*args, **kwargs)
             except ConnectionClosed:
                 logging.info("connection closed")
                 break
+
     return wrapper
 
 
-def reconnect(async_function: t.Callable[..., t.Awaitable[T]]) -> t.Callable[..., t.Awaitable[T]]:
+def reconnect(
+    async_function: t.Callable[P, t.Awaitable[t.Any]]
+) -> t.Callable[P, t.Awaitable[None]]:
     @functools.wraps(async_function)
-    async def wrapper(*args, **kwargs) -> t.Awaitable[T]:
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> None:
         while True:
             try:
-                return await async_function(*args, **kwargs)
+                await async_function(*args, **kwargs)
             except Exception as e:
                 logging.error(e)
                 logging.error(traceback.format_exc())
